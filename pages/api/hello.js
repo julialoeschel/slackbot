@@ -6,6 +6,7 @@ let payload = "";
 
 export default async function handler(req, res) {
   const { response_url, text, channel_name: courseName } = req.body;
+  const sendResponse = createSendResponse(response_url);
 
   res.status(200).send();
   initializeTempDirectory();
@@ -17,26 +18,32 @@ export default async function handler(req, res) {
 
     switch (command) {
       case "list": {
-        payload += listSessions();
+        payload += listSessions()
+          .map((session) => `${session}\n`)
+          .join("");
         break;
       }
       case "copy": {
         const [sessionName] = args;
+        const allSessions = listSessions();
+
+        if (!allSessions.includes(sessionName)) {
+          throw new Error(`session ${sessionName} does not exist`);
+        }
+
         cloneReop(`git@github.com:shebtastic/${courseName}.git`);
         payload += copySession(sessionName, courseName);
         break;
       }
     }
-
-    const response = await fetch(response_url, {
-      method: "POST",
-      body: JSON.stringify({ text: payload, mrkdwn: true }),
-    });
-
-    console.log(response);
+  } catch (error) {
+    await sendResponse(error.message);
+    return;
   } finally {
     deleteTempDirectory();
   }
+
+  await sendResponse(payload);
 
   ///////////////////////
   //functions
@@ -56,7 +63,11 @@ export default async function handler(req, res) {
     const ls = execSync("ls", {
       cwd: "tmp/web-curriculum-new-format/sessions",
     });
-    return ls.toString();
+    return ls
+      .toString()
+      .split("\n")
+      .slice(0, -1)
+      .filter((session) => !session.startsWith("_"));
   }
 
   function copySession(
@@ -78,5 +89,14 @@ export default async function handler(req, res) {
       }
     );
     return `added *${sessionName}*`;
+  }
+
+  function createSendResponse(response_url) {
+    return async function (text) {
+      return await fetch(response_url, {
+        method: "POST",
+        body: JSON.stringify({ text, mrkdwn: true }),
+      });
+    };
   }
 }
