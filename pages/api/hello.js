@@ -1,7 +1,9 @@
 // Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 import { execSync } from "child_process";
+import { Octokit } from "octokit";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
 let payload = "";
 
 export default async function handler(req, res) {
@@ -9,21 +11,21 @@ export default async function handler(req, res) {
   const sendResponse = createSendResponse(response_url);
 
   res.status(200).send();
+
   initializeTempDirectory();
 
   try {
-    cloneReop("git@github.com:neuefische/web-curriculum-new-format.git");
-
     const [command, ...args] = text.trim().split(" ");
 
     switch (command) {
       case "list": {
-        payload += listSessions()
-          .map((session) => `${session}\n`)
-          .join("");
+        const response = await listSessions();
+        payload += response.map((session) => `${session}\n`).join("");
         break;
       }
       case "copy": {
+        cloneReop("git@github.com:neuefische/web-curriculum-new-format.git");
+
         const [sessionName] = args;
         const allSessions = listSessions();
 
@@ -55,19 +57,31 @@ export default async function handler(req, res) {
     execSync("rm -rf tmp");
   }
 
-  function cloneReop(path, cwd = "tmp") {
+  async function cloneReop(path, cwd = "tmp") {
     execSync(`git clone ${path}`, { cwd });
   }
 
-  function listSessions() {
-    const ls = execSync("ls", {
-      cwd: "tmp/web-curriculum-new-format/sessions",
-    });
-    return ls
-      .toString()
-      .split("\n")
-      .slice(0, -1)
-      .filter((session) => !session.startsWith("_"));
+  async function listSessions() {
+    const {
+      data: { tree },
+    } = await octokit.request(
+      "GET /repos/{owner}/{repo}/git/trees/{tree_sha}{?recursive}",
+      {
+        owner: "neuefische",
+        repo: "web-curriculum-new-format",
+        tree_sha: "main",
+        recursive: true,
+      }
+    );
+    return Array.from(
+      tree
+        .map((leaf) => leaf.path)
+        .filter((path) => path.startsWith("sessions/"))
+        .map((path) => path.replace(/sessions\/(.+?)\/.*/, "$1"))
+        .filter((path) => !path.startsWith("sessions/"))
+        .filter((path) => !path.startsWith("_"))
+        .reduce((acc, curr) => acc.add(curr), new Set())
+    );
   }
 
   function copySession(
