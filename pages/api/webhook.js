@@ -9,10 +9,9 @@ export default async function handler(req, res) {
   const { response_url, text, channel_name: courseName } = req.body;
   const sendResponse = createSendResponse(response_url);
 
-  res.status(200).send();
-
   try {
     const [command, ...args] = text.trim().split(" ");
+    console.log("test");
 
     switch (command) {
       case "list": {
@@ -42,7 +41,7 @@ export default async function handler(req, res) {
         }
         await sendResponse(
           `:nintendo_star:  Session:  *${sessionName} :nintendo_star:*
-:books: <https://github.com/shebtastic/${courseName}/tree/main/sessions/${sessionName}| handout & challenges> :books: `,
+          :books: <https://github.com/shebtastic/${courseName}/tree/main/sessions/${sessionName}| handout & challenges> :books: `,
           true
         );
         await sendResponse(
@@ -57,6 +56,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  res.status(200).send();
   await sendResponse(payload, false);
 
   ///////////////////////
