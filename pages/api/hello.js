@@ -24,22 +24,30 @@ export default async function handler(req, res) {
         break;
       }
       case "copy": {
-        cloneReop("git@github.com:neuefische/web-curriculum-new-format.git");
-
         const [sessionName] = args;
-        const allSessions = listSessions();
+        const allSessions = await listSessions();
 
         if (!allSessions.includes(sessionName)) {
           throw new Error(`session ${sessionName} does not exist`);
         }
-
-        cloneReop(`git@github.com:shebtastic/${courseName}.git`);
-        payload += copySession(sessionName, courseName);
+        const paths = ["sessions/react-state/README.md"];
+        for (const path of paths) {
+          const file = await donloadFile(path);
+          const { status } = await uploadFile(path, file, courseName);
+          if (status === 201) {
+            payload += `that worked. ${path}\n `;
+          } else {
+            payload += `no!!! idnt work. ${path}\n `;
+            throw new Error(` upload of ${path} didnt  work`);
+          }
+        }
         break;
       }
     }
   } catch (error) {
+    console.error(error);
     await sendResponse(error.message);
+
     return;
   } finally {
     deleteTempDirectory();
@@ -57,8 +65,17 @@ export default async function handler(req, res) {
     execSync("rm -rf tmp");
   }
 
-  async function cloneReop(path, cwd = "tmp") {
-    execSync(`git clone ${path}`, { cwd });
+  async function donloadFile(path, cwd = "tmp") {
+    const res = await octokit.request(
+      "GET /repos/{owner}/{repo}/contents/{path}{?ref}",
+      {
+        owner: "neuefische",
+        repo: "web-curriculum-new-format",
+        path,
+      }
+    );
+
+    return res.data.content;
   }
 
   async function listSessions() {
@@ -84,25 +101,23 @@ export default async function handler(req, res) {
     );
   }
 
-  function copySession(
-    sessionName,
-    targetRepo,
-    sourceRepo = "web-curriculum-new-format"
-  ) {
-    const cp = execSync(
-      `cp -r ${sourceRepo}/sessions/${sessionName} ${targetRepo}/sessions/.`,
+  async function uploadFile(path, content, targetRepo) {
+    const response = await octokit.request(
+      "PUT /repos/{owner}/{repo}/contents/{path}",
       {
-        cwd: `tmp`,
+        owner: "shebtastic",
+        repo: targetRepo,
+        path,
+        message: `add ${path}`,
+        committer: {
+          name: "Klaus the Slackbot",
+          email: "julia.loeschel@neuefische.de",
+        },
+        content,
       }
     );
 
-    const push = execSync(
-      `git add .; git commit -m "add ${sessionName}" ; git push  `,
-      {
-        cwd: `tmp/${targetRepo}`,
-      }
-    );
-    return `added *${sessionName}*`;
+    return response;
   }
 
   function createSendResponse(response_url) {
