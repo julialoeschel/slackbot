@@ -1,5 +1,4 @@
 // Next.js API route support: https://nextjs.org/docs/api-routes/introduction
-import { execSync } from "child_process";
 import { Octokit } from "octokit";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -11,8 +10,6 @@ export default async function handler(req, res) {
   const sendResponse = createSendResponse(response_url);
 
   res.status(200).send();
-
-  initializeTempDirectory();
 
   try {
     const [command, ...args] = text.trim().split(" ");
@@ -30,8 +27,10 @@ export default async function handler(req, res) {
         if (!allSessions.includes(sessionName)) {
           throw new Error(`session ${sessionName} does not exist`);
         }
-        const paths = ["sessions/react-state/README.md"];
+        const paths = await fileOfSession(sessionName);
         for (const path of paths) {
+          if (isInStopWords(path)) continue;
+
           const file = await donloadFile(path);
           const { status } = await uploadFile(path, file, courseName);
           if (status === 201) {
@@ -41,31 +40,29 @@ export default async function handler(req, res) {
             throw new Error(` upload of ${path} didnt  work`);
           }
         }
+        await sendResponse(
+          `:nintendo_star:  Session:  *${sessionName} :nintendo_star:*
+:books: <https://github.com/shebtastic/${courseName}/tree/main/sessions/${sessionName}| handout & challenges> :books: `,
+          true
+        );
+        await sendResponse(
+          `:question_block: Fragen-Thread :question_block:`,
+          true
+        );
         break;
       }
     }
   } catch (error) {
-    console.error(error);
-    await sendResponse(error.message);
-
+    await sendResponse(error.message, false);
     return;
-  } finally {
-    deleteTempDirectory();
   }
 
-  await sendResponse(payload);
+  await sendResponse(payload, false);
 
   ///////////////////////
   //functions
-  function initializeTempDirectory() {
-    execSync("mkdir -p tmp");
-  }
 
-  function deleteTempDirectory() {
-    execSync("rm -rf tmp");
-  }
-
-  async function donloadFile(path, cwd = "tmp") {
+  async function donloadFile(path) {
     const res = await octokit.request(
       "GET /repos/{owner}/{repo}/contents/{path}{?ref}",
       {
@@ -120,12 +117,48 @@ export default async function handler(req, res) {
     return response;
   }
 
+  async function fileOfSession(sessionName) {
+    const {
+      data: { tree },
+    } = await octokit.request(
+      "GET /repos/{owner}/{repo}/git/trees/{tree_sha}{?recursive}",
+      {
+        owner: "neuefische",
+        repo: "web-curriculum-new-format",
+        tree_sha: "main",
+        recursive: true,
+      }
+    );
+    return Array.from(
+      tree
+        .filter((node) => node.type === "blob")
+        .map((leaf) => leaf.path)
+        .filter((path) => path.startsWith(`sessions/${sessionName}/`))
+    );
+  }
+
   function createSendResponse(response_url) {
-    return async function (text) {
+    return async function (text, isPublic) {
       return await fetch(response_url, {
         method: "POST",
-        body: JSON.stringify({ text, mrkdwn: true }),
+        body: JSON.stringify({
+          response_type: isPublic ? "in_channel" : "ephemeral",
+          text,
+          mrkdwn: true,
+        }),
       });
     };
+  }
+
+  function isInStopWords(path) {
+    const stopwords = [
+      "README.md",
+      "quiz.md",
+      "missconceptions.md",
+      "rationale.md",
+    ];
+    return stopwords.some((stopword) =>
+      path.toLowerCase().includes(stopword.toLowerCase())
+    );
   }
 }
